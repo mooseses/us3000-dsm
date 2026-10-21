@@ -17,7 +17,8 @@ US3000 reporting USB ID `2b89:ffff`. Tested so far:
 - the companion package installed through Package Center.
 
 **Not yet tested:** installing the addon through the RR menu and booting with it,
-and a full low-battery shutdown.
+the Task Scheduler method for systems without RR (offline tests only), and a full
+low-battery shutdown.
 
 | Part | What it is |
 |---|---|
@@ -79,6 +80,33 @@ restores every file it touched.
    DSM report the switch to battery.
 
 Optional addon parameters are passed to the driver, for example `-x pollinterval=5`.
+
+### 1b. Without RR (genuine Synology): Task Scheduler
+
+**Untested on genuine Synology hardware.** The released driver is **x86_64 only**,
+so this won't work on ARM models (check **Control Panel → Info Center → CPU**).
+The same `install.sh` can run from a root boot task instead of from RR:
+
+1. Make a folder on a volume, e.g. `/volume1/us3000`. Put `install.sh` from this
+   repo there, plus the driver from the release's `us3000.addon`:
+   ```sh
+   cd /volume1/us3000
+   curl -fsSLo install.sh https://raw.githubusercontent.com/mooseses/us3000-dsm/main/addon/install.sh
+   tar -xzf us3000.addon ./all.tgz && tar -xzf all.tgz ./us3000-usbhid-ups && rm all.tgz
+   ```
+2. **Control Panel → Task Scheduler → Create → Triggered Task → User-defined
+   script.** Set **User** to `root`, **Event** to `Boot-up`, and the command to
+   `sh /volume1/us3000/install.sh boot`.
+3. Select the task and click **Run** once, then enable UPS support in DSM
+   (step 4 above).
+
+**Difference from RR.** RR patches DSM before it detects USB devices. A boot-up
+task runs afterwards, once DSM has already rejected the UPS, so `boot` mode replays
+the UPS's USB "add" event (`udevadm trigger`) after patching. The UPS isn't
+monitored for the first minute or two of each boot.
+
+**To uninstall:** turn off UPS support, delete the task, run
+`sh /volume1/us3000/install.sh boot-uninstall` as root, then reboot.
 
 ### 2. The companion app (optional)
 

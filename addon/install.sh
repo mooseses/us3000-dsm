@@ -24,9 +24,19 @@
 # Runs at the "late" stage on every boot and is idempotent, so a DSM update
 # that replaces any of these files is re-patched on the next boot.
 #
+# Without RR (genuine Synology, or any DSM without the loader), run it as root
+# from a Task Scheduler "Boot-up" task instead:  sh install.sh boot
+# That patches the running system rather than /tmpRoot. Boot-up tasks run after
+# DSM's udev has already rejected the UPS, so boot mode then replays the USB
+# "add" event for 2b89:* devices. "sh install.sh boot-uninstall" undoes it.
+#
 # Licensed under the MIT License. The bundled usbhid-ups is NUT 2.8.5 (GPL-2.0+).
 
-ROOT="${RR_TMPROOT:-/tmpRoot}"   # override only for testing
+case "${1}" in
+  boot | boot-uninstall) DEFAULT_ROOT="" ;;   # the running system
+  *) DEFAULT_ROOT="/tmpRoot" ;;               # RR's view of DSM at the late stage
+esac
+ROOT="${RR_TMPROOT:-${DEFAULT_ROOT}}"   # override only for testing
 HERE="$(cd "$(dirname "${0}")" && pwd)"
 VID="2b89"
 PIDS="ffff 3245"
@@ -174,7 +184,38 @@ uninstall_all() {
   log "uninstalled"
 }
 
+# Boot mode only: DSM's udev checked the UPS against its whitelist before we
+# patched it, so ask udev to send the "add" event again for 2b89:* devices.
+replay_udev() {
+  SYSFS="${US3000_SYSFS:-/sys}"
+  FOUND=""
+  for D in "${SYSFS}"/bus/usb/devices/*; do
+    [ -f "${D}/idVendor" ] || continue
+    [ "$(cat "${D}/idVendor")" = "${VID}" ] || continue
+    NAME="$(basename "${D}")"
+    FOUND="${NAME}"
+    if udevadm trigger --action=add --subsystem-match=usb --sysname-match="${NAME}"; then
+      log "replayed USB add event for ${NAME} ($(cat "${D}/idVendor"):$(cat "${D}/idProduct"))"
+    else
+      log "WARNING: udevadm trigger failed for ${NAME}; replug the UPS's USB cable"
+    fi
+  done
+  [ -n "${FOUND}" ] || log "no ${VID}:* device on USB, nothing to replay"
+}
+
 case "${1}" in
+  boot)
+    shift
+    log "installing (boot mode, params: ${*:-none})"
+    RC=0
+    install_driver "$*" || RC=1
+    patch_tables
+    replay_udev
+    exit "${RC}"
+    ;;
+  boot-uninstall)
+    uninstall_all
+    ;;
   late)
     shift
     log "installing (params: ${*:-none})"
