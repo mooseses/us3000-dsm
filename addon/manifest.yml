@@ -1,0 +1,9 @@
+version: 1
+name: us3000
+description:
+  en_US: "Support for the UGREEN US3000 DC UPS (USB 2b89:ffff / 2b89:3245) in DSM. Bundles a static NUT 2.8.5 usbhid-ups (DSM 7.4's NUT 2.8.0 can't select the Arduino subdriver), wraps DSM's usbhid-ups to use it when the US3000 is plugged in, and adds the device to DSM's UPS whitelist and driver table. Other UPSes keep using DSM's driver. Optional params: extra NUT driver options, e.g. '-x pollinterval=5'. Log: /var/log/rr-us3000.log"
+system: false
+params: true
+all:
+  install-script: "install.sh"
+  copy: ""

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>US3000 Companion</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<main class="viz-root">
+  <header class="top">
+    <div>
+      <h1>US3000 Companion</h1>
+      <p class="sub" id="device">Connecting to DSM's UPS service…</p>
+    </div>
+    <p class="sub" id="updated"></p>
+  </header>
+
+  <p class="banner" id="banner" hidden></p>
+
+  <section class="tiles" aria-label="Live status">
+    <div class="tile state" id="state-tile">
+      <span class="label">Power</span>
+      <span class="state-line"><span class="dot" id="state-dot" aria-hidden="true"></span><span class="value" id="state">–</span></span>
+      <span class="hint" id="since"></span>
+    </div>
+    <div class="tile"><span class="label">Battery charge</span><span class="value" id="charge">–</span><span class="hint" id="charge-low"></span></div>
+    <div class="tile"><span class="label">Runtime estimate</span><span class="value" id="runtime">–</span><span class="hint" id="runtime-hint"></span></div>
+    <div class="tile"><span class="label">Load</span><span class="value" id="load">–</span></div>
+    <div class="tile"><span class="label">Input / output</span><span class="value" id="volts">–</span></div>
+    <div class="tile"><span class="label">Beeper</span><span class="value" id="beeper">–</span></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>History</h2>
+      <div class="seg" role="group" aria-label="Time range" id="ranges">
+        <button data-range="1h">1h</button><button data-range="24h" class="on">24h</button><button data-range="7d">7d</button><button data-range="30d">30d</button>
+      </div>
+    </div>
+    <div class="chart-block">
+      <div class="chart-title"><h3>Battery charge (%)</h3>
+        <span class="legend"><span class="key band"></span>On battery</span>
+        <button class="linkbtn" data-table="charge">Table</button></div>
+      <div class="chart" id="chart-charge"></div>
+      <div class="table-wrap" id="table-charge" hidden></div>
+    </div>
+    <div class="chart-block">
+      <div class="chart-title"><h3>Voltage (V)</h3>
+        <span class="legend"><span class="key s1"></span>Input <span class="key s2"></span>Output</span>
+        <button class="linkbtn" data-table="volts">Table</button></div>
+      <div class="chart" id="chart-volts"></div>
+      <div class="table-wrap" id="table-volts" hidden></div>
+    </div>
+  </section>
+
+  <div class="two-col">
+    <section class="card">
+      <h2>Battery wear</h2>
+      <p class="note">Charge lost per minute on battery, for each outage of 2 minutes or more. At a similar load, a rising trend over months means the battery is ageing.</p>
+      <div class="chart" id="chart-wear"></div>
+      <p class="note" id="lb-note"></p>
+    </section>
+    <section class="card">
+      <h2>Addon health</h2>
+      <p class="note" id="health-summary"></p>
+      <ul class="checks" id="checks"></ul>
+      <details id="addon-log-box"><summary>Addon log</summary><pre id="addon-log"></pre></details>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Outages</h2>
+    <div class="table-wrap"><table id="outages">
+      <thead><tr><th>Started</th><th>Duration</th><th class="num">Charge</th><th class="num">Rate</th><th class="num">Runtime est.</th><th>Low battery</th><th>Ended</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <p class="note" id="outages-empty" hidden>No outages recorded yet.</p>
+  </section>
+
+  <section class="card">
+    <h2>Events</h2>
+    <ul class="events" id="events"></ul>
+  </section>
+</main>
+<div class="tooltip" id="tooltip" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

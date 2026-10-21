@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+companion/build/
+companion/dist/
+companion/tests/preview/
+addon/build/
+addon/dist/

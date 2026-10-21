@@ -1,0 +1,47 @@
+#!/bin/sh
+# Runs as the package user (conf/privilege: run-as package).
+PKG="us3000-companion"
+VAR="${SYNOPKG_PKGVAR:-/var/packages/${PKG}/var}"
+PIDFILE="${VAR}/collector.pid"
+COLLECTOR="/var/packages/${PKG}/target/bin/collector.py"
+
+running() {
+    [ -f "${PIDFILE}" ] || return 1
+    PID="$(cat "${PIDFILE}")"
+    [ -n "${PID}" ] && kill -0 "${PID}" 2>/dev/null && grep -q collector.py "/proc/${PID}/cmdline" 2>/dev/null
+}
+
+case "$1" in
+    start)
+        running && exit 0
+        mkdir -p "${VAR}" && chmod 755 "${VAR}"
+        /bin/python3 -I "${COLLECTOR}" --db "${VAR}/companion.db" --log "${VAR}/collector.log" \
+            >/dev/null 2>>"${VAR}/collector.err" </dev/null &
+        echo $! >"${PIDFILE}"
+        sleep 1
+        running
+        ;;
+    stop)
+        if running; then
+            kill "${PID}"
+            for _ in 1 2 3 4 5 6 7 8 9 10; do
+                kill -0 "${PID}" 2>/dev/null || break
+                sleep 1
+            done
+            kill -9 "${PID}" 2>/dev/null
+        fi
+        rm -f "${PIDFILE}"
+        exit 0
+        ;;
+    status)
+        running && exit 0
+        exit 3
+        ;;
+    log)
+        echo "${VAR}/collector.log"
+        exit 0
+        ;;
+    *)
+        exit 1
+        ;;
+esac

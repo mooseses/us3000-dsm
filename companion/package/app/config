@@ -1,0 +1,19 @@
+{
+    "companion.js": {
+        "US3000.Companion.Application": {
+            "type": "app",
+            "title": "US3000 Companion",
+            "version": "1.0.1",
+            "icon": "images/icon-{0}.png",
+            "allowMultiInstance": false,
+            "allUsers": false,
+            "appWindow": "US3000.Companion.AppWindow",
+            "depend": ["US3000.Companion.AppWindow"]
+        },
+        "US3000.Companion.AppWindow": {
+            "type": "lib",
+            "title": "US3000 Companion",
+            "icon": "images/icon-{0}.png"
+        }
+    }
+}
