@@ -1,9 +1,34 @@
 # UGREEN US3000 UPS on Synology DSM
 
-Makes the **UGREEN US3000 DC UPS** work with DSM's built-in UPS support, and adds
-a DSM app that shows what DSM's own UPS page doesn't. It works both on genuine
-Synology NAS hardware and on other machines running DSM through the
-[RR loader](https://github.com/RROrg/rr) (XPEnology):
+**UGREEN's US3000 support, reverse-engineered from UGREEN's own firmware and
+rebuilt for Synology DSM.**
+
+The UGREEN US3000 DC UPS is only officially supported by UGREEN's own NAS
+operating system, UGOS. Plugged into a NAS running Synology DSM, it isn't
+recognised at all. To find out exactly how UGREEN drives it, this project took
+apart UGREEN's official firmware: the **UGOS Pro 1.20.0.142** NAS image and the
+**US3000 V3.7** UPS firmware. It then recreated that behaviour on top of DSM's
+built-in UPS support, using only open-source components (Network UPS Tools).
+
+What the firmware revealed, and what this project does with it:
+
+- **How UGOS talks to the UPS.** UGOS's custom "TOP HID" driver turned out to be
+  NUT's MGE mapping under another name. The addon uses the same mapping, so DSM
+  sees everything UGOS sees.
+- **How UGOS decides to shut down.** UGOS ignores the UPS's own low-battery flag
+  and works from the charge percentage. The addon does the same.
+- **What must never be touched.** UGOS appears to set the UPS's DC output voltage
+  through one variable. The addon locks it read-only, so nothing on DSM can
+  change it.
+- **Which hardware variants exist.** Two suppliers build the US3000 (USB IDs
+  `2b89:ffff` and `2b89:3245`). The addon recognises both.
+
+The details are in [Reverse engineering UGREEN's firmware](#reverse-engineering-ugreens-firmware).
+No UGREEN firmware, code or files are redistributed.
+
+It works on genuine Synology NAS hardware and on machines running DSM through
+the [RR loader](https://github.com/RROrg/rr) (XPEnology), and comes with a DSM
+companion app that shows what DSM's own UPS page doesn't:
 
 - **RR / XPEnology:** install it as an RR addon ([step 1](#1-the-addon)).
 - **Genuine Synology:** run the same script from a Task Scheduler boot task
@@ -40,6 +65,51 @@ low-battery shutdown.
 ![US3000 Companion](docs/companion.png)
 *(Screenshot with simulated data.)*
 
+## Reverse engineering UGREEN's firmware
+
+Every US3000-specific decision in this project comes from UGREEN's own firmware.
+The aim was compatibility: make the UPS behave on DSM the way UGREEN designed it
+to behave on UGOS.
+
+**Sources.** Both are official files published by UGREEN:
+
+| File | What it is |
+|---|---|
+| UGOS Pro 1.20.0.142 (`…intel_release_amd64_6.18_nasync.img`) | UGREEN's NAS operating system |
+| `US3000_TB_V3.7_US3000_JQH_V3.7_20260907.bin` | US3000 UPS firmware V3.7, one build per hardware supplier |
+
+**Method.** The files were only unpacked and read. Nothing from them was run, and
+nothing was flashed to the UPS.
+
+- The UGOS image was unpacked layer by layer (tar, squashfs, UGREEN's signed
+  package format, gzip, xz) down to the UPS-related binaries.
+- In the UPS firmware, the USB device and HID report descriptors were located and
+  decoded.
+- UGOS's NUT driver was parsed as an ELF file to extract its subdriver tables,
+  which were then compared with NUT's own.
+- UGREEN's UPS service binaries (`ups_tool`, `ctl_serv`) were searched for the
+  configuration and commands they use.
+
+**Findings, and what the addon does with them:**
+
+| Found in | Finding | Used as |
+|---|---|---|
+| UPS firmware | The report descriptor (1044 bytes for the TB variant) lists every value the UPS offers, and which ones the host may change | Identifying a unit's variant; knowing which settings are writable |
+| UPS firmware | The JQH build uses USB ID `2b89:3245`; the TB build is `2b89:ffff` | Both IDs are whitelisted |
+| UGOS NUT driver | UGREEN's "TOP HID" subdriver mapping is identical to NUT's MGE subdriver, apart from one default delay | [`subdriver=MGE`](#driver-settings-and-why) |
+| UGOS `ups_tool` | UGOS writes `ignorelb` plus its own `override.battery.charge.low`, and forces a shutdown at ≤5% charge | `ignorelb` with `battery.charge.low=20` |
+| UGOS `ups_tool` | UGOS has a "set voltage" UPS event and handles `output.voltage.nominal`, which points to it setting the UPS's DC output voltage (inferred from the binaries, not observed) | That variable is locked read-only |
+| UGOS udev rules | UGOS labels the two IDs "TOP" and "UC300" | Documentation |
+
+**Left alone on purpose.** UGOS also updates the UPS's own firmware (`ctl_serv`
+checks `ups.json` and the md5 sums, picks the TB or JQH file, and uploads it in
+chunks). That flashing protocol was not decoded, and this project never flashes
+the UPS: a failed flash would brick it, and the NAS would lose power with it.
+
+No UGREEN firmware, code or files are included in this repository or its
+releases. Everything shipped is either original code or unmodified Network UPS
+Tools.
+
 ## Why an addon is needed
 
 DSM 7.4 ships NUT 2.8.0. The US3000 is a standard HID power device, but NUT 2.8.0
@@ -64,8 +134,8 @@ restores every file it touched.
   commands.
 - **`ignorelb` + `battery.charge.low=20`.** UGOS ignores the UPS's own low-battery
   flag too, and derives it from the charge percentage instead.
-- **Read-only overrides.** `output.voltage.nominal` is locked, because UGOS uses it
-  to *set the DC output voltage*, and a wrong value could damage the NAS.
+- **Read-only overrides.** `output.voltage.nominal` is locked, because UGOS appears
+  to use it to *set the DC output voltage*, and a wrong value could damage the NAS.
   `input.transfer.*` (AC-only, meaningless on a DC unit) and the model name
   (the firmware returns a garbled suffix) are locked as well.
 
@@ -78,28 +148,6 @@ restores every file it touched.
 - The beeper is disabled by default (`ups.beeper.status: disabled`).
 - There are two hardware suppliers: "TB" (`2b89:ffff`) and "JQH" (`2b89:3245`,
   called "UC300" in UGOS). Only the TB variant has been tested.
-
-### How the settings were worked out
-
-The driver settings above were reverse-engineered from UGREEN's own official
-firmware, for compatibility with DSM: the **UGOS Pro 1.20.0.142** NAS OS image and
-the **US3000 V3.7** UPS firmware, both as published by UGREEN. Nothing was flashed
-or run; the files were only unpacked and read.
-
-- **UPS firmware.** Decoding the HID report descriptor (the UPS's map of the data
-  it offers) showed which supplier variant a unit is (TB or JQH) and which values
-  the UPS lets the host change.
-- **UGOS.** UGOS uses NUT 2.8.0 with a custom "TOP HID" subdriver. Comparing its
-  mapping table with NUT's showed it is identical to the MGE subdriver.
-  UGREEN's own UPS service also showed:
-  - that UGOS ignores the UPS's low-battery flag and forces a shutdown at 5%
-    charge;
-  - that UGOS sets the UPS's DC output voltage through `output.voltage.nominal`,
-    which is why the addon locks it.
-
-No UGREEN firmware, code or files are included in this repository or its
-releases. UGOS also updates the UPS's own firmware; that protocol was not decoded,
-and this project does not flash the UPS.
 
 ## Install
 
