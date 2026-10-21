@@ -169,13 +169,13 @@ Optional addon parameters are passed to the driver, for example `-x pollinterval
 so this won't work on ARM models (check **Control Panel → Info Center → CPU**).
 The same `install.sh` can run from a root boot task instead of from RR:
 
-1. Make a folder on a volume, e.g. `/volume1/us3000`. Put `install.sh` from this
-   repo there, plus the driver from the release's `us3000.addon`:
+1. Make a folder on a volume, e.g. `/volume1/us3000`, put `us3000.addon` from the
+   [latest release](../../releases/latest) (v1.1.0 or later) in it, and unpack it:
    ```sh
    cd /volume1/us3000
-   curl -fsSLo install.sh https://raw.githubusercontent.com/mooseses/us3000-dsm/main/addon/install.sh
-   tar -xzf us3000.addon ./all.tgz && tar -xzf all.tgz ./us3000-usbhid-ups && rm all.tgz
+   tar -xzf us3000.addon ./all.tgz && tar -xzf all.tgz && rm all.tgz
    ```
+   That leaves `install.sh` and `us3000-usbhid-ups` in the folder.
 2. **Control Panel → Task Scheduler → Create → Triggered Task → User-defined
    script.** Set **User** to `root`, **Event** to `Boot-up`, and the command to
    `sh /volume1/us3000/install.sh boot`.
