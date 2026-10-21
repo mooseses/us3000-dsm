@@ -1,11 +1,23 @@
 # UGREEN US3000 UPS on Synology DSM
 
-Makes the **UGREEN US3000 DC UPS** work with DSM's built-in UPS support on a NAS
-running DSM through the [RR loader](https://github.com/RROrg/rr), and adds a DSM
-app that shows what DSM's own UPS page doesn't.
+Makes the **UGREEN US3000 DC UPS** work with DSM's built-in UPS support, and adds
+a DSM app that shows what DSM's own UPS page doesn't. It works both on genuine
+Synology NAS hardware and on other machines running DSM through the
+[RR loader](https://github.com/RROrg/rr) (XPEnology):
+
+- **RR / XPEnology:** install it as an RR addon ([step 1](#1-the-addon)).
+- **Genuine Synology:** run the same script from a Task Scheduler boot task
+  ([step 1b](#1b-without-rr-genuine-synology-task-scheduler)). x86_64 models only,
+  and not yet tested on real Synology hardware.
 
 > Unofficial and not affiliated with UGREEN or Synology. A UPS decides when your
 > NAS loses power: test it (pull the plug while watching) before you rely on it.
+
+> **AI-generated code.** This project (the addon, the companion app, the tests and
+> this README) was written by a generative AI assistant (Anthropic's Claude) under
+> human direction. It has been tested on real hardware only as far as the Status
+> section says, and has not had a line-by-line human code review. Read the scripts
+> before you run them as root, and report anything that looks wrong.
 
 **Status.** Developed on a UGREEN DXP4800S (DSM 7.4.1-90080, RR 26.9.0) with a
 US3000 reporting USB ID `2b89:ffff`. Tested so far:
@@ -22,7 +34,7 @@ low-battery shutdown.
 
 | Part | What it is |
 |---|---|
-| [`addon/`](addon) | RR addon that gets DSM's UPS service to drive the US3000 |
+| [`addon/`](addon) | Gets DSM's UPS service to drive the US3000 (RR addon, or Task Scheduler boot task) |
 | [`companion/`](companion) | DSM package: live status, outage history, battery-wear trend, addon health |
 
 ![US3000 Companion](docs/companion.png)
