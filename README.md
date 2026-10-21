@@ -79,6 +79,28 @@ restores every file it touched.
 - There are two hardware suppliers: "TB" (`2b89:ffff`) and "JQH" (`2b89:3245`,
   called "UC300" in UGOS). Only the TB variant has been tested.
 
+### How the settings were worked out
+
+The driver settings above were reverse-engineered from UGREEN's own official
+firmware, for compatibility with DSM: the **UGOS Pro 1.20.0.142** NAS OS image and
+the **US3000 V3.7** UPS firmware, both as published by UGREEN. Nothing was flashed
+or run; the files were only unpacked and read.
+
+- **UPS firmware.** Decoding the HID report descriptor (the UPS's map of the data
+  it offers) showed which supplier variant a unit is (TB or JQH) and which values
+  the UPS lets the host change.
+- **UGOS.** UGOS uses NUT 2.8.0 with a custom "TOP HID" subdriver. Comparing its
+  mapping table with NUT's showed it is identical to the MGE subdriver.
+  UGREEN's own UPS service also showed:
+  - that UGOS ignores the UPS's low-battery flag and forces a shutdown at 5%
+    charge;
+  - that UGOS sets the UPS's DC output voltage through `output.voltage.nominal`,
+    which is why the addon locks it.
+
+No UGREEN firmware, code or files are included in this repository or its
+releases. UGOS also updates the UPS's own firmware; that protocol was not decoded,
+and this project does not flash the UPS.
+
 ## Install
 
 ### 1. The addon
