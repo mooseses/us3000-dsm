@@ -68,6 +68,19 @@ h3 { font-size: 13px; margin: 0; font-weight: 600; }
 .seg button.on { background: var(--accent-wash); color: var(--text-primary); font-weight: 600; }
 .linkbtn { font: inherit; font-size: 12px; color: var(--series-1); background: none; border: 0; cursor: pointer; margin-left: auto; padding: 0; }
 
+.ctl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+.ctl-group h3 { margin-bottom: 4px; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { font: inherit; color: var(--text-primary); background: var(--page); border: 1px solid var(--border);
+  border-radius: 7px; padding: 5px 12px; cursor: pointer; }
+.btn:hover:not(:disabled) { background: var(--accent-wash); }
+.btn:disabled { color: var(--text-muted); cursor: not-allowed; }
+.btn.danger { background: var(--critical); border-color: var(--critical); color: #fff; }
+.btn.busy { opacity: 0.6; }
+.confirm { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--critical); border-radius: 8px; }
+.confirm p { margin: 0 0 8px; }
+.ctl-msg { margin: 10px 0 0; min-height: 1.2em; }
+.ctl-msg.ok { color: var(--good); } .ctl-msg.err { color: var(--critical); }
 .chart-block { margin-top: 10px; }
 .chart-title { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
 .legend { color: var(--text-secondary); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }

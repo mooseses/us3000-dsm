@@ -130,5 +130,82 @@ webapi.cgi_main(auth=lambda: "admin", db_path=db, out=buf)
 head, _, payload = buf.getvalue().partition("\r\n\r\n")
 check(head.startswith("Status: 200") and "outages" in json.loads(payload), "CGI serves admins")
 
+# ---- addon boot status (v1.2.0 status file vs the kernel boot ID)
+bdir = tempfile.mkdtemp()
+ucore.ADDON_STATUS = os.path.join(bdir, "status")
+ucore.BOOT_ID = os.path.join(bdir, "boot_id")
+open(ucore.BOOT_ID, "w").write("aaaa-1111\n")
+lvl, msg = ucore.addon_boot_status()
+check(lvl == "warning" and "older than v1.2.0" in msg, "no status file -> warning")
+open(ucore.ADDON_STATUS, "w").write("version=1.2.0\nmode=late\nboot_id=aaaa-1111\ntime=t\nresult=ok\nerrors=\n")
+check(ucore.addon_boot_status()[0] == "ok", "status from this boot, ok -> ok")
+open(ucore.ADDON_STATUS, "w").write("version=1.2.0\nmode=late\nboot_id=bbbb-2222\ntime=t\nresult=ok\nerrors=\n")
+lvl, msg = ucore.addon_boot_status()
+check(lvl == "critical" and "did not run at this boot" in msg, "status from an earlier boot -> critical")
+open(ucore.ADDON_STATUS, "w").write("version=1.2.0\nmode=late\nboot_id=aaaa-1111\ntime=t\nresult=error\nerrors=driver missing\n")
+lvl, msg = ucore.addon_boot_status()
+check(lvl == "critical" and "driver missing" in msg, "errors at this boot -> critical with the message")
+
+# ---- control endpoint against a fake us3000-ctl
+import socketserver, threading  # noqa: E401,E402
+ctl_reqs = []
+
+
+class FakeCtl(socketserver.StreamRequestHandler):
+    def handle(self):
+        req = json.loads(self.rfile.readline())
+        ctl_reqs.append(req)
+        if req.get("op") == "ping":
+            rep = {"ok": True, "version": "1.2.0", "allowed": sorted(webapi.CONTROL_CMDS)}
+        elif req.get("cmd") == "test.battery.start.quick":
+            rep = {"ok": False, "error": "refused: the UPS is on battery"}
+        else:
+            rep = {"ok": True, "code": 0, "result": "handled"}
+        self.wfile.write((json.dumps(rep) + "\n").encode())
+
+
+ucore.CTL_SOCK = os.path.join(bdir, "ctl.sock")
+ctl_srv = socketserver.ThreadingUnixStreamServer(ucore.CTL_SOCK, FakeCtl)
+threading.Thread(target=ctl_srv.serve_forever, daemon=True).start()
+
+code, _ = webapi.handle({"action": "control"}, db, now=clock.t, method="GET", body='{"cmd":"beeper.enable"}', same_origin=True)
+check(code == 405, "control via GET -> 405")
+code, _ = webapi.handle({"action": "control"}, db, now=clock.t, method="POST", body='{"cmd":"beeper.enable"}', same_origin=False)
+check(code == 403, "control without the X-US3000 header -> 403")
+code, _ = webapi.handle({"action": "control"}, db, now=clock.t, method="POST", body='{"cmd":"load.off"}', same_origin=True)
+check(code == 400 and not any(r.get("cmd") == "load.off" for r in ctl_reqs), "unknown command never reaches the gatekeeper")
+code, _ = webapi.handle({"action": "control"}, db, now=clock.t, method="POST", body="not json", same_origin=True)
+check(code == 400, "malformed body -> 400")
+code, body = webapi.handle({"action": "control"}, db, now=clock.t, method="POST", body='{"cmd":"beeper.enable"}', user="admin", same_origin=True)
+check(code == 200 and body["ok"] and ctl_reqs[-1] == {"op": "instcmd", "cmd": "beeper.enable", "confirm": False}, "beeper.enable forwarded")
+code, body = webapi.handle({"action": "control"}, db, now=clock.t, method="POST", body='{"cmd":"test.battery.start.deep","confirm":true}', user="admin", same_origin=True)
+check(code == 200 and ctl_reqs[-1]["confirm"] is True, "deep test forwards confirm=true")
+code, body = webapi.handle({"action": "control"}, db, now=clock.t, method="POST", body='{"cmd":"test.battery.start.quick"}', user="admin", same_origin=True)
+check(code == 200 and not body["ok"] and "on battery" in body["error"], "gatekeeper refusal passed through")
+code, body = webapi.handle({"action": "events", "limit": "5"}, db, now=clock.t)
+ctl_events = [e for e in body["events"] if e["kind"] == "CONTROL"]
+check(len(ctl_events) == 3 and "beeper.enable by admin: accepted by the UPS" in [e["detail"] for e in ctl_events],
+      "control actions recorded as events with the user")
+ucore.nut_list_vars = lambda: {"ups.status": "OL", "ups.beeper.status": "enabled"}
+code, body = webapi.handle({"action": "status"}, db, now=clock.t)
+check(body["controls"]["available"] and body["controls"]["version"] == "1.2.0", "status reports controls available")
+ctl_srv.shutdown(); ctl_srv.server_close(); os.unlink(ucore.CTL_SOCK)
+code, body = webapi.handle({"action": "status"}, db, now=clock.t)
+check(not body["controls"]["available"] and "v1.2.0" in body["controls"]["error"], "missing gatekeeper -> controls unavailable with reason")
+code, body = webapi.handle({"action": "control"}, db, now=clock.t, method="POST", body='{"cmd":"beeper.enable"}', user="admin", same_origin=True)
+check(code == 502, "control with no gatekeeper -> 502")
+
+# ---- collector records beeper / test-result changes
+con = ucore.db_open(db)
+c4 = collector.Collector(con, health=lambda v, e: {"level": "ok", "checks": []}, clock=clock)
+for beep, test in [("disabled", "No test initiated"), ("disabled", "No test initiated"), ("enabled", "In progress"), ("enabled", "Done and passed")]:
+    st = ups("OL", 100); st["ups.beeper.status"] = beep; st["ups.test.result"] = test
+    c4.query = lambda st=st: st
+    c4.poll(); clock.t += 5
+kinds = [(r["kind"], r["detail"]) for r in con.execute("SELECT kind, detail FROM events WHERE kind IN ('BEEPER','TEST_RESULT') ORDER BY id")]
+check(kinds == [("BEEPER", "disabled → enabled"), ("TEST_RESULT", "No test initiated → In progress"), ("TEST_RESULT", "In progress → Done and passed")],
+      "beeper/test changes recorded once each: %s" % kinds)
+con.close()
+
 print("\n%d failure(s)" % len(fails))
 sys.exit(1 if fails else 0)

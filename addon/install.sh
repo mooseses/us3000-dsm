@@ -20,6 +20,11 @@
 #   3. Adds 2b89:ffff and 2b89:3245 to the udev UPS whitelist
 #      (/lib/udev/devicetable/usb.nut-hid, read by ups-check.sh) and to the
 #      driver table (/etc/ups/nutscan-usb.h, read by ups-usb.sh).
+#   4. Installs us3000-ctl, a root systemd service that lets the US3000
+#      Companion send an allow-list of commands (beeper, battery test) to
+#      the driver. See us3000-ctl.py for what it permits and refuses.
+#   5. Writes /var/lib/us3000/status with this boot's kernel boot ID and the
+#      result, so the companion can tell whether the addon ran at this boot.
 #
 # Runs at the "late" stage on every boot and is idempotent, so a DSM update
 # that replaces any of these files is re-patched on the next boot.
@@ -38,6 +43,7 @@ case "${1}" in
 esac
 ROOT="${RR_TMPROOT:-${DEFAULT_ROOT}}"   # override only for testing
 HERE="$(cd "$(dirname "${0}")" && pwd)"
+ADDON_VERSION="1.2.0"
 VID="2b89"
 PIDS="ffff 3245"
 MARK="rr-addon:us3000 wrapper"
@@ -46,13 +52,38 @@ NEWDIR="/usr/lib/us3000"
 NEWDRV="${NEWDIR}/usbhid-ups"
 NUTHID="/lib/udev/devicetable/usb.nut-hid"
 SCAN_TABLES="/etc/ups/nutscan-usb.h /etc.defaults/ups/nutscan-usb.h"
+CTL="${NEWDIR}/us3000-ctl.py"
+UNIT="/usr/lib/systemd/system/us3000-ctl.service"
+WANTS="/usr/lib/systemd/system/multi-user.target.wants/us3000-ctl.service"
+STATUS="/var/lib/us3000/status"
 LOG="${ROOT}/var/log/rr-us3000.log"
+ERRORS=""
 
 log() {
   echo "us3000: $*"
   mkdir -p "$(dirname "${LOG}")" 2>/dev/null
   echo "$(date '+%F %T') install: $*" >>"${LOG}" 2>/dev/null
   chmod 644 "${LOG}" 2>/dev/null   # readable by the US3000 Companion package
+}
+
+fail() {
+  log "ERROR: $*"
+  ERRORS="${ERRORS:+${ERRORS}; }$*"
+}
+
+# Records this run against the kernel's boot ID, so the companion can tell
+# "the addon ran at this boot" from files left over by an earlier boot.
+write_status() {
+  mkdir -p "$(dirname "${ROOT}${STATUS}")" && chmod 755 "$(dirname "${ROOT}${STATUS}")"
+  {
+    echo "version=${ADDON_VERSION}"
+    echo "mode=${1}"
+    echo "boot_id=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)"
+    echo "time=$(date '+%F %T')"
+    if [ -n "${ERRORS}" ]; then echo "result=error"; else echo "result=ok"; fi
+    echo "errors=${ERRORS}"
+  } >"${ROOT}${STATUS}"
+  chmod 644 "${ROOT}${STATUS}"
 }
 
 # Exact lines we add, so uninstall removes only these.
@@ -101,42 +132,71 @@ EOF
   chmod 755 "${ROOT}${DRV}"
 }
 
-# The bundled driver: RR copies the addon's root/ tree into the ramdisk, so it
-# arrives as /addons/us3000-usbhid-ups next to this script (/addons/us3000.sh).
-# Unpacked by hand for boot mode it may still sit under root/addons/.
-bundled_driver() {
-  for F in "${HERE}/us3000-usbhid-ups" "${HERE}/root/addons/us3000-usbhid-ups"; do
+# Bundled files: RR copies the addon's root/ tree into the ramdisk, so they
+# arrive in /addons next to this script (/addons/us3000.sh). Unpacked by hand
+# for boot mode they may still sit under root/addons/.
+bundled() {
+  for F in "${HERE}/${1}" "${HERE}/root/addons/${1}"; do
     [ -f "${F}" ] && { echo "${F}"; return 0; }
   done
   return 1
 }
 
 install_driver() {
-  SRC="$(bundled_driver)" || {
-    log "ERROR: bundled driver us3000-usbhid-ups not found next to ${HERE}, nothing installed"
+  SRC="$(bundled us3000-usbhid-ups)" || {
+    fail "bundled driver us3000-usbhid-ups not found next to ${HERE}, nothing installed"
     return 1
   }
   mkdir -p "${ROOT}${NEWDIR}" && chmod 755 "${ROOT}${NEWDIR}" &&
     cp -f "${SRC}" "${ROOT}${NEWDRV}" &&
-    chmod 755 "${ROOT}${NEWDRV}" || return 1
+    chmod 755 "${ROOT}${NEWDRV}" || { fail "could not install ${NEWDRV}"; return 1; }
   log "installed NUT 2.8.5 driver at ${NEWDRV}"
 
   if [ ! -f "${ROOT}${DRV}" ]; then
-    log "${DRV} not found in DSM, nothing to wrap"
+    fail "${DRV} not found in DSM, nothing to wrap"
     return 1
   fi
   if grep -q "${MARK}" "${ROOT}${DRV}" 2>/dev/null; then
     [ -f "${ROOT}${DRV}.real" ] || {
-      log "wrapper at ${DRV} but ${DRV}.real is missing, refusing to touch it"
+      fail "wrapper at ${DRV} but ${DRV}.real is missing, refusing to touch it"
       return 1
     }
     log "wrapper already in place at ${DRV}, refreshing it"
   else
     # Fresh install, or a DSM update dropped in a new real binary.
-    mv -f "${ROOT}${DRV}" "${ROOT}${DRV}.real" || return 1
+    mv -f "${ROOT}${DRV}" "${ROOT}${DRV}.real" || { fail "could not move ${DRV} aside"; return 1; }
     log "moved DSM driver to ${DRV}.real"
   fi
   write_wrapper "${1}"
+}
+
+# The root gatekeeper the US3000 Companion uses to send allow-listed commands.
+install_ctl() {
+  SRC="$(bundled us3000-ctl.py)" || {
+    fail "bundled us3000-ctl.py not found next to ${HERE}, control service not installed"
+    return 1
+  }
+  mkdir -p "${ROOT}${NEWDIR}" "$(dirname "${ROOT}${UNIT}")" "$(dirname "${ROOT}${WANTS}")" &&
+    cp -f "${SRC}" "${ROOT}${CTL}" && chmod 755 "${ROOT}${CTL}" || {
+    fail "could not install ${CTL}"
+    return 1
+  }
+  {
+    echo "[Unit]"
+    echo "Description=US3000 UPS control gatekeeper (rr-addon us3000)"
+    echo "After=multi-user.target"
+    echo
+    echo "[Service]"
+    echo "Type=simple"
+    echo "ExecStart=/bin/python3 -I ${CTL}"
+    echo "Restart=always"
+    echo "RestartSec=5"
+    echo
+    echo "[Install]"
+    echo "WantedBy=multi-user.target"
+  } >"${ROOT}${UNIT}"
+  ln -sf "${UNIT}" "${ROOT}${WANTS}"
+  log "installed control service ${UNIT}"
 }
 
 # $1 = file, $2 = line to add before the first line matching $3 (or append)
@@ -190,8 +250,17 @@ uninstall_all() {
       remove_line "${F}" "$(scan_line "${P}")"
     done
   done
+  rm -f "${ROOT}${WANTS}" "${ROOT}${UNIT}"
+  rm -rf "$(dirname "${ROOT}${STATUS}")"
   rm -f "${ROOT}/usr/rr/addons/us3000.sh" "${ROOT}/usr/rr/addons/us3000-usbhid-ups"
   log "uninstalled"
+}
+
+# Boot mode runs on a live system, so systemd needs telling about unit changes.
+live_systemctl() {
+  [ -z "${ROOT}" ] || return 0
+  systemctl daemon-reload
+  systemctl "$@" us3000-ctl.service || log "WARNING: systemctl $* us3000-ctl failed"
 }
 
 # Boot mode only: DSM's udev checked the UPS against its whitelist before we
@@ -217,14 +286,17 @@ case "${1}" in
   boot)
     shift
     log "installing (boot mode, params: ${*:-none})"
-    RC=0
-    install_driver "$*" || RC=1
+    install_driver "$*"
+    install_ctl && live_systemctl restart
     patch_tables
     replay_udev
-    exit "${RC}"
+    write_status boot
+    [ -z "${ERRORS}" ] || exit 1
     ;;
   boot-uninstall)
+    live_systemctl stop
     uninstall_all
+    live_systemctl reset-failed 2>/dev/null
     ;;
   late)
     shift
@@ -233,7 +305,9 @@ case "${1}" in
     mkdir -p "${ROOT}/usr/rr/addons"
     cp -pf "${0}" "${ROOT}/usr/rr/addons/us3000.sh" 2>/dev/null
     install_driver "$*"
+    install_ctl
     patch_tables
+    write_status late
     ;;
   uninstall)
     uninstall_all

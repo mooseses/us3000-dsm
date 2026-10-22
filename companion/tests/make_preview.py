@@ -50,18 +50,22 @@ con.executemany("INSERT INTO events(ts,kind,detail) VALUES(?,?,?)", ev)
 ucore.meta_set(con, "last_poll", now - 3)
 ucore.meta_set(con, "health", {"level": "warning", "checked_at": now - 20, "addon_log": None, "checks": [
     {"name": "US3000 on USB", "level": "ok", "detail": "2b89:ffff"},
+    {"name": "Addon at this boot", "level": "ok", "detail": "v1.2.0 ran at this boot (late mode, 2026-10-21 19:58:02)"},
     {"name": "Addon wrapper", "level": "ok", "detail": "/usr/bin/usbhid-ups is the us3000 wrapper"},
     {"name": "Driver process", "level": "ok", "detail": "/usr/lib/us3000/usbhid-ups"},
     {"name": "Driver version", "level": "ok", "detail": "NUT 2.8.5, subdriver MGE"},
     {"name": "Voltage setting lock", "level": "ok", "detail": "output.voltage.nominal is read-only"},
-    {"name": "Low-battery logic", "level": "warning", "detail": "using the UPS's own LB flag (ignorelb is off)"}]})
+    {"name": "Low-battery logic", "level": "warning", "detail": "using the UPS's own LB flag (ignorelb is off)"},
+    {"name": "Control service", "level": "ok", "detail": "us3000-ctl v1.2.0 (beeper, battery test)"}]})
 con.commit()
 
 ucore.nut_list_vars = lambda: {"ups.status": "OL DISCHRG", "battery.charge": "100", "battery.charge.low": "20",
                                "battery.runtime": "65535", "input.voltage": "12.0", "output.voltage": "12.0",
                                "ups.load": "1", "ups.beeper.status": "disabled", "device.mfr": "UGREEN",
                                "device.model": "US3000", "device.serial": "SN00000", "driver.version": "2.8.5",
-                               "driver.parameter.subdriver": "MGE"}
+                               "driver.parameter.subdriver": "MGE", "ups.test.result": "Done and passed"}
+ucore.ctl_call = lambda req, timeout=20.0, path=None: {
+    "ok": True, "version": "1.2.0", "allowed": sorted(webapi.CONTROL_CMDS)}
 resp = {"status": webapi.handle({"action": "status"}, db, now)[1],
         "outages": webapi.handle({"action": "outages"}, db, now)[1],
         "events": webapi.handle({"action": "events", "limit": "80"}, db, now)[1]}

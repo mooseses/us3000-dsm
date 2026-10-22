@@ -31,6 +31,42 @@
     <div class="tile"><span class="label">Beeper</span><span class="value" id="beeper">–</span></div>
   </section>
 
+  <section class="card" id="controls">
+    <div class="card-head">
+      <h2>Controls</h2>
+      <span class="sub" id="ctl-state"></span>
+    </div>
+    <div class="ctl-grid">
+      <div class="ctl-group">
+        <h3>Beeper</h3>
+        <p class="note">Currently <strong id="ctl-beeper">–</strong>. When enabled, the UPS beeps on power loss and alarms.</p>
+        <div class="btn-row">
+          <button class="btn" data-cmd="beeper.enable">Enable</button>
+          <button class="btn" data-cmd="beeper.disable">Disable</button>
+          <button class="btn" data-cmd="beeper.mute" title="Silence the current alarm only">Mute alarm</button>
+        </div>
+      </div>
+      <div class="ctl-group">
+        <h3>Battery self-test</h3>
+        <p class="note">Last result: <strong id="ctl-test">–</strong>. Tests only run while the UPS is on mains.</p>
+        <div class="btn-row">
+          <button class="btn" data-cmd="test.battery.start.quick">Quick test</button>
+          <button class="btn" id="deep-ask">Deep test…</button>
+          <button class="btn" data-cmd="test.battery.stop">Stop test</button>
+        </div>
+        <div class="confirm" id="deep-confirm" hidden>
+          <p>A deep test runs the NAS on battery until the battery is nearly drained. If mains power
+            fails during it, there may not be enough charge left for a clean shutdown.</p>
+          <div class="btn-row">
+            <button class="btn danger" data-cmd="test.battery.start.deep" data-confirm="1">Start deep test</button>
+            <button class="btn" id="deep-cancel">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="ctl-msg" id="ctl-msg" role="status" aria-live="polite"></p>
+  </section>
+
   <section class="card">
     <div class="card-head">
       <h2>History</h2>

@@ -1,4 +1,7 @@
-"""US3000 Companion web API, served as a CGI by DSM's web server. Read-only."""
+"""US3000 Companion web API, served as a CGI by DSM's web server.
+
+Everything is read-only except action=control, which forwards an allow-listed command
+to the addon's root gatekeeper (us3000-ctl); the gatekeeper enforces the allow-list."""
 
 import json
 import os
@@ -17,7 +20,11 @@ RANGES = {           # range -> (seconds, bucket seconds)
 LIVE_KEYS = ["ups.status", "battery.charge", "battery.charge.low", "battery.runtime",
              "input.voltage", "output.voltage", "ups.load", "ups.beeper.status",
              "device.mfr", "device.model", "device.serial", "driver.version",
-             "driver.parameter.subdriver", "ups.delay.shutdown", "ups.delay.start"]
+             "driver.parameter.subdriver", "ups.delay.shutdown", "ups.delay.start",
+             "ups.test.result"]
+# What the app offers; us3000-ctl has the final say and refuses anything else.
+CONTROL_CMDS = {"beeper.enable", "beeper.disable", "beeper.mute",
+                "test.battery.start.quick", "test.battery.start.deep", "test.battery.stop"}
 
 
 def _since(con, now):
@@ -39,7 +46,14 @@ def status(con, now):
     except ucore.NutError as e:
         live, err = None, str(e)
     last_poll = ucore.meta_get(con, "last_poll")
+    try:
+        pong = ucore.ctl_call({"op": "ping"}, timeout=5)
+        controls = {"available": bool(pong.get("ok")), "version": pong.get("version"),
+                    "allowed": pong.get("allowed", []), "error": pong.get("error")}
+    except ucore.CtlError as e:
+        controls = {"available": False, "error": str(e)}
     return {
+        "controls": controls,
         "now": now,
         "live": live,
         "comm_error": err,
@@ -90,9 +104,40 @@ def events(con, limit):
     return {"events": [dict(r) for r in rows]}
 
 
-def handle(params, db_path=ucore.DEFAULT_DB, now=None):
+def control(body, user, db_path, now):
+    try:
+        req = json.loads(body or "{}")
+    except ValueError:
+        return 400, {"error": "body must be JSON"}
+    cmd = req.get("cmd") if isinstance(req, dict) else None
+    if cmd not in CONTROL_CMDS:
+        return 400, {"error": "unknown command"}
+    try:
+        reply = ucore.ctl_call({"op": "instcmd", "cmd": cmd, "confirm": req.get("confirm") is True})
+    except ucore.CtlError as e:
+        return 502, {"ok": False, "error": str(e)}
+    detail = "%s by %s: %s" % (cmd, user, "accepted by the UPS" if reply.get("ok")
+                               else reply.get("error") or reply.get("result", "failed"))
+    try:   # the CGI runs as the package user, so it may append to the collector's log
+        con = ucore.db_open(db_path)
+        con.execute("INSERT INTO events(ts, kind, detail) VALUES(?, 'CONTROL', ?)", (now, detail))
+        con.commit()
+        con.close()
+    except Exception:
+        pass
+    return 200, reply
+
+
+def handle(params, db_path=ucore.DEFAULT_DB, now=None, method="GET", body=None,
+           user=None, same_origin=False):
     now = int(now or time.time())
     action = params.get("action", "status")
+    if action == "control":
+        if method != "POST":
+            return 405, {"error": "control needs POST"}
+        if not same_origin:   # browsers can't add this header cross-site without CORS
+            return 403, {"error": "missing X-US3000 header"}
+        return control(body, user, db_path, now)
     if not os.path.exists(db_path):
         return 503, {"error": "no data yet: the collector hasn't created its database"}
     con = ucore.db_open(db_path, readonly=True)
@@ -115,17 +160,28 @@ def handle(params, db_path=ucore.DEFAULT_DB, now=None):
 
 
 def cgi_main(auth=ucore.dsm_admin_user, db_path=ucore.DEFAULT_DB, out=sys.stdout):
-    params = dict(urllib.parse.parse_qsl(os.environ.get("QUERY_STRING", "")))
+    env = os.environ
+    params = dict(urllib.parse.parse_qsl(env.get("QUERY_STRING", "")))
+    method = env.get("REQUEST_METHOD", "GET").upper()
+    body = None
+    if method == "POST":
+        try:
+            n = min(int(env.get("CONTENT_LENGTH") or 0), 4096)
+        except ValueError:
+            n = 0
+        body = sys.stdin.read(n) if n else ""
     user = auth()
     if not user:
-        code, body = 403, {"error": "sign in to DSM as an administrator"}
+        code, payload = 403, {"error": "sign in to DSM as an administrator"}
     else:
         try:
-            code, body = handle(params, db_path)
+            code, payload = handle(params, db_path, method=method, body=body, user=user,
+                                   same_origin=env.get("HTTP_X_US3000") == "1")
         except Exception as e:     # keep the UI informative rather than a bare 500 page
-            code, body = 500, {"error": "%s: %s" % (type(e).__name__, e)}
-    reason = {200: "OK", 400: "Bad Request", 403: "Forbidden",
-              500: "Internal Server Error", 503: "Service Unavailable"}[code]
+            code, payload = 500, {"error": "%s: %s" % (type(e).__name__, e)}
+    reason = {200: "OK", 400: "Bad Request", 403: "Forbidden", 405: "Method Not Allowed",
+              500: "Internal Server Error", 502: "Bad Gateway",
+              503: "Service Unavailable"}[code]
     out.write("Status: %d %s\r\nContent-Type: application/json; charset=utf-8\r\n"
               "Cache-Control: no-store\r\n\r\n" % (code, reason))
-    out.write(json.dumps(body))
+    out.write(json.dumps(payload))

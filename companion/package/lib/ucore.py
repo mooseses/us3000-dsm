@@ -17,6 +17,9 @@ RETENTION_DAYS = 30
 WRAPPER = "/usr/bin/usbhid-ups"
 WRAPPER_MARK = b"rr-addon:us3000 wrapper"
 ADDON_LOG = "/var/log/rr-us3000.log"
+ADDON_STATUS = "/var/lib/us3000/status"       # written by addon v1.2.0+ at every boot
+BOOT_ID = "/proc/sys/kernel/random/boot_id"
+CTL_SOCK = "/run/us3000-ctl.sock"             # the addon's root gatekeeper (v1.2.0+)
 AUTHENTICATE = "/usr/syno/synoman/webman/modules/authenticate.cgi"
 
 SCHEMA = """
@@ -109,7 +112,63 @@ def meta_set(con, key, value):
                 (key, json.dumps(value)))
 
 
+# --------------------------------------------------------- control gatekeeper
+
+class CtlError(Exception):
+    pass
+
+
+def ctl_call(req, timeout=20.0, path=None):
+    """One request to the addon's us3000-ctl service; returns its JSON reply."""
+    path = path or CTL_SOCK
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    try:
+        s.connect(path)
+        s.sendall((json.dumps(req) + "\n").encode())
+        data = b""
+        while not data.endswith(b"\n"):
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+    except FileNotFoundError:
+        raise CtlError("the control service isn't installed (needs us3000 addon v1.2.0 or later)")
+    except PermissionError:
+        raise CtlError("no permission to reach the control service")
+    except OSError as e:
+        raise CtlError("control service unreachable: %s" % e)
+    finally:
+        s.close()
+    try:
+        return json.loads(data.decode())
+    except ValueError:
+        raise CtlError("unreadable reply from the control service")
+
+
 # -------------------------------------------------------------- addon health
+
+def addon_boot_status():
+    """Did the addon run at *this* boot? Compares its status file's boot ID with the kernel's."""
+    try:
+        with open(ADDON_STATUS) as f:
+            st = dict(l.rstrip("\n").split("=", 1) for l in f if "=" in l)
+    except OSError:
+        return "warning", ("no status from the addon: it is older than v1.2.0, or it has "
+                           "never run (check /var/log/rr-us3000.log)")
+    try:
+        with open(BOOT_ID) as f:
+            boot = f.read().strip()
+    except OSError:
+        boot = ""
+    v = st.get("version", "?")
+    if boot and st.get("boot_id") != boot:
+        return "critical", ("the addon did not run at this boot; the UPS is using files left "
+                            "over from an earlier boot (last run: v%s, %s)" % (v, st.get("time", "?")))
+    if st.get("result") != "ok":
+        return "critical", "v%s reported errors at boot: %s" % (v, st.get("errors") or "see the addon log")
+    return "ok", "v%s ran at this boot (%s mode, %s)" % (v, st.get("mode", "?"), st.get("time", "?"))
+
 
 def _usb_ids():
     ids = []
@@ -150,6 +209,8 @@ def health_check(vars_=None, comm_error=None):
     add("US3000 on USB", "ok" if ugreen else "critical",
         ", ".join(ugreen) if ugreen else "no 2b89:* device on the USB bus")
 
+    add("Addon at this boot", *addon_boot_status())
+
     try:
         with open(WRAPPER, "rb") as f:
             head = f.read(256)
@@ -189,6 +250,14 @@ def health_check(vars_=None, comm_error=None):
         add("Low-battery logic", "ok" if lb else "warning",
             "LB derived from charge <= %s%%" % vars_.get("battery.charge.low", "?")
             if lb else "using the UPS's own LB flag (ignorelb is off)")
+
+    try:
+        pong = ctl_call({"op": "ping"}, timeout=5)
+        add("Control service", "ok" if pong.get("ok") else "warning",
+            "us3000-ctl v%s (beeper, battery test)" % pong.get("version", "?")
+            if pong.get("ok") else pong.get("error", "refused"))
+    except CtlError as e:
+        add("Control service", "warning", str(e))
 
     log_tail = None
     try:

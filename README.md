@@ -18,8 +18,8 @@ What the firmware revealed, and what this project does with it:
 - **How UGOS decides to shut down.** UGOS ignores the UPS's own low-battery flag
   and works from the charge percentage. The addon does the same.
 - **What must never be touched.** UGOS appears to set the UPS's DC output voltage
-  through one variable. The addon locks it read-only, so nothing on DSM can
-  change it.
+  through one variable. The addon locks it read-only in DSM's UPS service, and the
+  companion app's command gatekeeper never lets it be written.
 - **Which hardware variants exist.** Two suppliers build the US3000 (USB IDs
   `2b89:ffff` and `2b89:3245`). The addon recognises both.
 
@@ -58,11 +58,11 @@ US3000 reporting USB ID `2b89:ffff`. Tested so far:
 **Known issue in v1.0.1 and v1.1.0:** installed through the RR menu, the addon
 couldn't find its driver at boot (`bundled driver … missing` in
 `/var/log/rr-us3000.log`). RR only copies an addon's `root/` folder into the boot
-image, and those releases packaged the driver outside it. This is fixed in v1.1.1.
+image, and those releases packaged the driver outside it. This is fixed in v1.2.0.
 
-**Not yet tested:** booting a real system with the v1.1.1 addon, the Task
-Scheduler method for systems without RR (offline tests only), and a full
-low-battery shutdown.
+**Not yet tested:** booting a real system with the v1.2.0 addon, the companion's
+controls on real hardware, the Task Scheduler method for systems without RR
+(offline tests only), and a full low-battery shutdown.
 
 | Part | What it is |
 |---|---|
@@ -146,6 +146,13 @@ restores every file it touched.
   `input.transfer.*` (AC-only, meaningless on a DC unit) and the model name
   (the firmware returns a garbled suffix) are locked as well.
 
+  **What the lock covers:** it applies to everything that goes through DSM's
+  `upsd`. The driver's own control socket bypasses it: NUT's HID write path checks
+  its built-in table, which marks these values writable, not the lock. That socket
+  is root-only (`/run/ups_state/usbhid-ups-ups`, mode 0660 `root:root`), so only
+  root can reach it. This is also why the companion's controls go through a
+  separate root gatekeeper (`us3000-ctl`, below), not through the driver socket.
+
 ### US3000 quirks
 
 - It reports `DISCHRG` even on mains with a full battery. Harmless; never set
@@ -177,7 +184,7 @@ so this won't work on ARM models (check **Control Panel → Info Center → CPU*
 The same `install.sh` can run from a root boot task instead of from RR:
 
 1. Make a folder on a volume, e.g. `/volume1/us3000`, put `us3000.addon` from the
-   [latest release](../../releases/latest) (v1.1.1 or later) in it, and unpack it:
+   [latest release](../../releases/latest) (v1.2.0 or later) in it, and unpack it:
    ```sh
    cd /volume1/us3000
    tar -xzf us3000.addon ./all.tgz && tar -xzf all.tgz && rm all.tgz
@@ -206,9 +213,41 @@ monitored for the first minute or two of each boot.
 3. **Package Center → Manual Install**, choose the `.spk`.
 4. Open **US3000 Companion** from the main menu (administrators only).
 
-The app is read-only: it reads DSM's `upsd` and never sends commands to the UPS.
 It needs no extra packages (it uses DSM's built-in Python 3.8). Raw readings are
 kept for 30 days and outage records are kept forever.
+
+**Controls (companion 1.1.0 + addon 1.2.0).** The app can send these commands to
+the UPS:
+
+| Control | Command | Rules |
+|---|---|---|
+| Beeper | `beeper.enable` / `beeper.disable` / `beeper.mute` | Mute silences the current alarm only |
+| Battery self-test | `test.battery.start.quick` / `.deep` / `test.battery.stop` | Only on mains; the deep test needs confirmation, because it drains the battery |
+
+The app itself runs unprivileged. Commands go to **`us3000-ctl`**, a small root
+service installed by the addon, which:
+
+- accepts requests only from root and the companion's own package user (checked
+  with the kernel's peer credentials, on a socket owned by the package's group);
+- forwards only the six commands above, and refuses battery tests while on
+  battery;
+- refuses everything else, including every variable write (`SET`) and every
+  command that cuts power (`load.off`, `shutdown.*`, `driver.killpower`);
+- logs every request to `/var/log/us3000-ctl.log`.
+
+The app records each command and its result in its event log, along with beeper
+and self-test changes reported by the UPS.
+
+Deliberately **not** offered: the output voltage (it may damage the NAS), the
+unknown vendor "Mode" setting and vendor channels (the firmware-update path), and
+the AC transfer voltages. Shutdown/startup delays and the low-battery threshold
+are planned. They need a config file the driver reads at start-up, because values
+set at runtime are lost when the driver restarts.
+
+**Health panel.** Besides the driver checks, the panel shows whether the addon
+**ran at this boot**. Addon 1.2.0 writes `/var/lib/us3000/status` with the
+kernel's boot ID, so leftovers from an earlier boot (the v1.1.0 failure above)
+show as a critical error, not as green.
 
 ## Build from source
 
@@ -216,6 +255,8 @@ kept for 30 days and outage records are kept forever.
 # Addon: the driver needs an Alpine environment for a fully static musl build
 docker run --rm -v "$PWD":/w -w /w alpine:3.24 sh addon/build-driver.sh
 sh addon/package.sh                       # -> addon/dist/us3000.addon
+python3 -I addon/tests/test_ctl.py         # gatekeeper, against a fake driver and upsd
+sh addon/tests/test_rr_install.sh         # package -> RR's installAddon -> boot -> uninstall
 
 # Companion: run on DSM (or anywhere with python3, tar and md5sum)
 sh companion/build.sh                     # -> companion/dist/*.spk

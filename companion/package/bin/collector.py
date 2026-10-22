@@ -123,6 +123,15 @@ class Collector:
                 self.event(now, "ON_MAINS", "after %s, charge %s%%"
                            % (_dur(now - o["start_ts"]), _fmt(charge)))
 
+        # Beeper and self-test changes, whoever caused them (the app, the UPS itself).
+        for var, kind in (("ups.beeper.status", "BEEPER"), ("ups.test.result", "TEST_RESULT")):
+            val = v.get(var)
+            prev = ucore.meta_get(self.con, "last:" + var)
+            if val is not None and val != prev:
+                if prev is not None:
+                    self.event(now, kind, "%s → %s" % (prev, val))
+                ucore.meta_set(self.con, "last:" + var, val)
+
         if "RB" in flags and not self.rb_reported:
             self.event(now, "REPLACE_BATTERY", "the UPS reports its battery needs replacing")
             self.rb_reported = True

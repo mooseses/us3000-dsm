@@ -7,7 +7,13 @@
   var KIND_LABEL = {
     ON_BATTERY: "On battery", ON_MAINS: "Power restored", LOW_BATTERY: "Low battery",
     FORCED_SHUTDOWN: "Forced shutdown", OUTAGE_CLOSED: "Outage closed", REPLACE_BATTERY: "Replace battery",
-    COMM_LOST: "UPS unreachable", COMM_OK: "UPS reachable", COLLECTOR_START: "Collector started"
+    COMM_LOST: "UPS unreachable", COMM_OK: "UPS reachable", COLLECTOR_START: "Collector started",
+    BEEPER: "Beeper", TEST_RESULT: "Battery test", CONTROL: "Command sent"
+  };
+  var CMD_LABEL = {
+    "beeper.enable": "Enable beeper", "beeper.disable": "Disable beeper", "beeper.mute": "Mute alarm",
+    "test.battery.start.quick": "Quick battery test", "test.battery.start.deep": "Deep battery test",
+    "test.battery.stop": "Stop battery test"
   };
 
   // ------------------------------------------------------------ helpers
@@ -50,6 +56,18 @@
       .then(function (r) {
         return r.json().catch(function () { return { error: "HTTP " + r.status }; })
           .then(function (b) { if (!r.ok) throw new Error(b.error || ("HTTP " + r.status)); return b; });
+      });
+  }
+  function post(params, payload) {
+    var tok = synoToken();
+    var q = Object.keys(params).map(function (k) { return k + "=" + encodeURIComponent(params[k]); }).join("&");
+    if (tok) q += "&SynoToken=" + encodeURIComponent(tok);
+    var headers = { "Content-Type": "application/json", "X-US3000": "1" };
+    if (tok) headers["X-SYNO-TOKEN"] = tok;
+    return fetch("api.cgi?" + q, { method: "POST", credentials: "same-origin", headers: headers,
+                                   body: JSON.stringify(payload) })
+      .then(function (r) {
+        return r.json().catch(function () { return { ok: false, error: "HTTP " + r.status }; });
       });
   }
   function banner(msg) { var b = $("banner"); b.textContent = msg || ""; b.hidden = !msg; }
@@ -278,7 +296,56 @@
       "The background collector isn't recording (last reading " + (b.collector.last_poll ? dt(b.collector.last_poll) : "never") +
       "). Start the package in Package Center.");
     renderHealth(b.health);
+    renderControls(b);
   }
+
+  // ------------------------------------------------------------ controls
+  var ctlBusy = false;
+  function renderControls(b) {
+    var c = b.controls || {}, v = b.live || {};
+    var ob = v["ups.status"] && v["ups.status"].split(" ").indexOf("OB") >= 0;
+    $("ctl-beeper").textContent = v["ups.beeper.status"] || "unknown";
+    $("ctl-test").textContent = v["ups.test.result"] || "none reported";
+    $("ctl-state").textContent = c.available ? "via us3000-ctl v" + c.version
+      : "unavailable: " + (c.error || "control service not reachable");
+    document.querySelectorAll("#controls [data-cmd], #deep-ask").forEach(function (btn) {
+      var cmd = btn.getAttribute("data-cmd") || "test.battery.start.deep";
+      var allowed = c.available && (c.allowed || []).indexOf(cmd) >= 0;
+      var testWhileOB = ob && cmd.indexOf("test.battery.start") === 0;
+      btn.disabled = ctlBusy || !allowed || testWhileOB || !b.live;
+      if (btn.dataset.tip === undefined) btn.dataset.tip = btn.title || "";
+      btn.title = !c.available ? "Needs the us3000 addon v1.2.0 or later"
+        : testWhileOB ? "Not while the UPS is on battery" : btn.dataset.tip;
+    });
+  }
+  function ctlMsg(text, ok) {
+    var m = $("ctl-msg"); m.textContent = text; m.className = "ctl-msg " + (ok ? "ok" : "err");
+  }
+  function sendCmd(cmd, confirmed) {
+    if (ctlBusy) return;
+    ctlBusy = true;
+    document.querySelectorAll("#controls .btn").forEach(function (x) { x.disabled = true; });
+    ctlMsg("Sending “" + (CMD_LABEL[cmd] || cmd) + "”…", true);
+    post({ action: "control" }, { cmd: cmd, confirm: !!confirmed })
+      .then(function (r) {
+        if (r.ok) ctlMsg((CMD_LABEL[cmd] || cmd) + ": accepted by the UPS.", true);
+        else ctlMsg((CMD_LABEL[cmd] || cmd) + ": " + (r.error || r.result || "failed") + ".", false);
+      })
+      .catch(function (e) { ctlMsg("Couldn't reach the app's backend: " + e.message, false); })
+      .then(function () {
+        ctlBusy = false;
+        $("deep-confirm").hidden = true;
+        // the UPS needs a poll cycle or two before the new state shows up
+        loadStatus(); setTimeout(loadStatus, 6000); setTimeout(loadSlow, 6000);
+      });
+  }
+  document.querySelectorAll("#controls [data-cmd]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      sendCmd(btn.getAttribute("data-cmd"), btn.getAttribute("data-confirm") === "1");
+    });
+  });
+  $("deep-ask").addEventListener("click", function () { $("deep-confirm").hidden = false; });
+  $("deep-cancel").addEventListener("click", function () { $("deep-confirm").hidden = true; });
 
   function setState(level, text, hint) {
     $("state").textContent = text;
