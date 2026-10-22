@@ -9,26 +9,47 @@
 <body>
 <main class="viz-root">
   <header class="top">
-    <div>
-      <h1>US3000 Companion</h1>
-      <p class="sub" id="device">Connecting to DSM's UPS service…</p>
+    <div class="brand">
+      <img src="images/icon-48.png" alt="" width="40" height="40">
+      <div>
+        <h1>US3000 Companion</h1>
+        <p class="sub" id="device">Connecting to DSM's UPS service…</p>
+      </div>
     </div>
-    <p class="sub" id="updated"></p>
+    <div class="top-right">
+      <a class="health-chip" id="health-chip" href="#health-card" data-level="pending">
+        <span class="icon" id="health-chip-icon" aria-hidden="true">…</span><span id="health-chip-text">Checking health</span>
+      </a>
+      <p class="sub" id="updated"></p>
+    </div>
   </header>
 
   <p class="banner" id="banner" hidden></p>
 
-  <section class="tiles" aria-label="Live status">
-    <div class="tile state" id="state-tile">
+  <section class="hero" aria-label="Live status">
+    <div class="hero-state" id="hero-state" data-level="pending">
       <span class="label">Power</span>
-      <span class="state-line"><span class="dot" id="state-dot" aria-hidden="true"></span><span class="value" id="state">–</span></span>
+      <div class="state-line">
+        <span class="state-icon" id="state-icon" aria-hidden="true"></span>
+        <span class="state-text" id="state">–</span>
+      </div>
       <span class="hint" id="since"></span>
     </div>
-    <div class="tile"><span class="label">Battery charge</span><span class="value" id="charge">–</span><span class="hint" id="charge-low"></span></div>
-    <div class="tile"><span class="label">Runtime estimate</span><span class="value" id="runtime">–</span><span class="hint" id="runtime-hint"></span></div>
-    <div class="tile"><span class="label">Load</span><span class="value" id="load">–</span></div>
-    <div class="tile"><span class="label">Input / output</span><span class="value" id="volts">–</span></div>
-    <div class="tile"><span class="label">Beeper</span><span class="value" id="beeper">–</span></div>
+    <div class="hero-battery">
+      <div class="label-row"><span class="label">Battery</span><span class="hint" id="charge-low"></span></div>
+      <div class="big" id="charge">–</div>
+      <div class="gauge" id="gauge" role="meter" aria-label="Battery charge" aria-valuemin="0" aria-valuemax="100">
+        <div class="gauge-fill" id="gauge-fill"></div>
+        <div class="gauge-low" id="gauge-low" title="Low-battery threshold"></div>
+      </div>
+      <div class="hint" id="runtime-line"></div>
+    </div>
+    <dl class="hero-stats">
+      <div><dt>Load</dt><dd id="load">–</dd></div>
+      <div><dt>Input</dt><dd id="vin">–</dd></div>
+      <div><dt>Output</dt><dd id="vout">–</dd></div>
+      <div><dt>Beeper</dt><dd id="beeper">–</dd></div>
+    </dl>
   </section>
 
   <section class="card" id="controls">
@@ -38,8 +59,10 @@
     </div>
     <div class="ctl-grid">
       <div class="ctl-group">
-        <h3>Beeper</h3>
-        <p class="note">Currently <strong id="ctl-beeper">–</strong>. When enabled, the UPS beeps on power loss and alarms.</p>
+        <h3>Beeper <span class="tag" title="Not yet confirmed on real hardware">unverified</span></h3>
+        <p class="note">Reported as <strong id="ctl-beeper">–</strong>. The US3000 reports this from a
+          read-only field, so it may not change after Enable or Disable even when the UPS accepts the
+          command. Whether the beeper really changes is still to be confirmed with a power-cut test.</p>
         <div class="btn-row">
           <button class="btn" data-cmd="beeper.enable">Enable</button>
           <button class="btn" data-cmd="beeper.disable">Disable</button>
@@ -98,7 +121,7 @@
       <p class="note" id="lb-note"></p>
     </section>
     <section class="card">
-      <h2>Addon health</h2>
+      <h2 id="health-card">Addon health</h2>
       <p class="note" id="health-summary"></p>
       <ul class="checks" id="checks"></ul>
       <details id="addon-log-box"><summary>Addon log</summary><pre id="addon-log"></pre></details>

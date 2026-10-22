@@ -10,6 +10,11 @@
     COMM_LOST: "UPS unreachable", COMM_OK: "UPS reachable", COLLECTOR_START: "Collector started",
     BEEPER: "Beeper", TEST_RESULT: "Battery test", CONTROL: "Command sent"
   };
+  var KIND_LEVEL = {
+    ON_MAINS: "good", COMM_OK: "good", ON_BATTERY: "warning", OUTAGE_CLOSED: "warning", COMM_LOST: "warning",
+    LOW_BATTERY: "critical", FORCED_SHUTDOWN: "critical", REPLACE_BATTERY: "critical",
+    CONTROL: "info", BEEPER: "info", TEST_RESULT: "info"
+  };
   var CMD_LABEL = {
     "beeper.enable": "Enable beeper", "beeper.disable": "Disable beeper", "beeper.mute": "Mute alarm",
     "test.battery.start.quick": "Quick battery test", "test.battery.start.deep": "Deep battery test",
@@ -278,14 +283,12 @@
       else if (ob && lb) setState("critical", "Low battery", "on battery for " + dur(b.now - b.since));
       else if (ob) setState("warning", "On battery", "for " + dur(b.now - b.since));
       else setState("good", "On mains", "since " + dt(b.since));
-      $("charge").textContent = fmtPct(num(v["battery.charge"]));
-      $("charge-low").textContent = "low battery at " + fmtPct(num(v["battery.charge.low"]));
-      $("runtime").textContent = v["battery.runtime"] != null ? dur(v["battery.runtime"]) : "–";
-      $("runtime-hint").textContent = v["battery.runtime"] != null ? "UPS estimate" : "the US3000 only estimates on battery";
+      renderBattery(num(v["battery.charge"]), num(v["battery.charge.low"]), v["battery.runtime"], ob);
       $("load").textContent = fmtPct(num(v["ups.load"]));
-      var vi = num(v["input.voltage"]), vo = num(v["output.voltage"]);
-      $("volts").textContent = (vi == null ? "–" : vi.toFixed(1)) + " / " + (vo == null ? "–" : vo.toFixed(1)) + " V";
+      $("vin").textContent = fmtV(num(v["input.voltage"]));
+      $("vout").textContent = fmtV(num(v["output.voltage"]));
       $("beeper").textContent = v["ups.beeper.status"] || "–";
+      $("beeper").title = "As reported by the UPS (a read-only field; see Controls)";
       $("device").textContent = [v["device.mfr"], v["device.model"], v["device.serial"] && "serial " + v["device.serial"],
         v["driver.version"] && "NUT " + v["driver.version"] + " (" + v["driver.parameter.subdriver"] + ")"]
         .filter(Boolean).join(" · ");
@@ -347,10 +350,27 @@
   $("deep-ask").addEventListener("click", function () { $("deep-confirm").hidden = false; });
   $("deep-cancel").addEventListener("click", function () { $("deep-confirm").hidden = true; });
 
+  var STATE_ICON = { good: "✓", warning: "!", critical: "×", pending: "…" };
   function setState(level, text, hint) {
     $("state").textContent = text;
     $("since").textContent = hint || "";
-    $("state-dot").style.background = cssVar("--" + level);
+    $("hero-state").setAttribute("data-level", level);
+    $("state-icon").textContent = STATE_ICON[level] || "";
+  }
+
+  function renderBattery(charge, low, runtime, ob) {
+    $("charge").textContent = fmtPct(charge);
+    $("charge-low").textContent = low != null ? "low battery at " + fmtPct(low) : "";
+    var g = $("gauge"), pct = charge == null ? 0 : Math.max(0, Math.min(100, charge));
+    $("gauge-fill").style.width = pct + "%";
+    g.setAttribute("aria-valuenow", pct);
+    g.setAttribute("data-level", low != null && charge != null
+      ? (charge <= low ? "critical" : charge <= low * 2 ? "warning" : "good") : "good");
+    $("gauge-low").style.left = (low != null ? Math.max(0, Math.min(100, low)) : 0) + "%";
+    $("gauge-low").hidden = low == null;
+    $("runtime-line").textContent = runtime != null
+      ? "About " + dur(runtime) + " of runtime left (UPS estimate)"
+      : ob ? "Runtime estimate not available yet" : "Runtime is only estimated while on battery";
   }
 
   function renderHealth(h) {
@@ -358,6 +378,10 @@
     if (!h) { $("health-summary").textContent = "Waiting for the collector's first check…"; return; }
     var words = { ok: "Everything checks out.", warning: "Something needs a look.", critical: "The addon isn't working as expected." };
     $("health-summary").textContent = words[h.level] + " Checked " + dt(h.checked_at) + ".";
+    var chip = { ok: ["✓", "Healthy"], warning: ["!", "Needs a look"], critical: ["×", "Problem"] }[h.level] || ["…", "Checking"];
+    $("health-chip").setAttribute("data-level", h.level);
+    $("health-chip-icon").textContent = chip[0];
+    $("health-chip-text").textContent = chip[1];
     var glyph = { ok: "✓", warning: "!", critical: "×" };
     h.checks.forEach(function (c) {
       var li = el("li");
@@ -420,7 +444,8 @@
     evts.filter(function (e) { return e.kind !== "COLLECTOR_START"; }).slice(0, 50).forEach(function (e) {
       var li = el("li");
       li.appendChild(el("span", { "class": "ts" }, dt(e.ts)));
-      li.appendChild(el("span", { "class": "k" }, KIND_LABEL[e.kind] || e.kind));
+      li.appendChild(el("span", {}, "")).appendChild(
+        el("span", { "class": "badge " + (KIND_LEVEL[e.kind] || "") }, KIND_LABEL[e.kind] || e.kind));
       li.appendChild(el("span", {}, e.detail || ""));
       ul.appendChild(li);
     });

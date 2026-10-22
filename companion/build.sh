@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds dist/us3000-companion-<version>-noarch.spk
 set -e
-VERSION="1.1.0-1"
+VERSION="1.2.0-1"
 R="$(cd "$(dirname "$0")" && pwd)"
 B="${R}/build"
 rm -rf "${B}" && mkdir -p "${B}/spk" "${B}/pkg" "${R}/dist"

@@ -124,8 +124,11 @@ class Collector:
                            % (_dur(now - o["start_ts"]), _fmt(charge)))
 
         # Beeper and self-test changes, whoever caused them (the app, the UPS itself).
-        for var, kind in (("ups.beeper.status", "BEEPER"), ("ups.test.result", "TEST_RESULT")):
-            val = v.get(var)
+        # The US3000 only reports ups.test.result after its first test, so "absent"
+        # counts as a value: absent -> "Done and passed" is a result worth logging.
+        for var, kind, absent in (("ups.beeper.status", "BEEPER", None),
+                                  ("ups.test.result", "TEST_RESULT", "none")):
+            val = v.get(var, absent)
             prev = ucore.meta_get(self.con, "last:" + var)
             if val is not None and val != prev:
                 if prev is not None:

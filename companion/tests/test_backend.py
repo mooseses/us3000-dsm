@@ -203,8 +203,19 @@ for beep, test in [("disabled", "No test initiated"), ("disabled", "No test init
     c4.query = lambda st=st: st
     c4.poll(); clock.t += 5
 kinds = [(r["kind"], r["detail"]) for r in con.execute("SELECT kind, detail FROM events WHERE kind IN ('BEEPER','TEST_RESULT') ORDER BY id")]
-check(kinds == [("BEEPER", "disabled → enabled"), ("TEST_RESULT", "No test initiated → In progress"), ("TEST_RESULT", "In progress → Done and passed")],
+check(kinds == [("TEST_RESULT", "none → No test initiated"), ("BEEPER", "disabled → enabled"), ("TEST_RESULT", "No test initiated → In progress"), ("TEST_RESULT", "In progress → Done and passed")],
       "beeper/test changes recorded once each: %s" % kinds)
+# The US3000 only reports ups.test.result after its first test (seen live 2026-10-22).
+st = ups("OL", 100); st["ups.beeper.status"] = "enabled"; st.pop("ups.test.result", None)
+con.execute("DELETE FROM meta WHERE key='last:ups.test.result'")
+for result in (None, None, "Done and passed"):
+    st2 = dict(st)
+    if result:
+        st2["ups.test.result"] = result
+    c4.query = lambda st2=st2: st2
+    c4.poll(); clock.t += 5
+last = con.execute("SELECT detail FROM events WHERE kind='TEST_RESULT' ORDER BY id DESC LIMIT 1").fetchone()["detail"]
+check(last == "none → Done and passed", "first-ever test result is logged (%s)" % last)
 con.close()
 
 print("\n%d failure(s)" % len(fails))

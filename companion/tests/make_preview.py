@@ -48,14 +48,16 @@ for o in outs:
                "after %dm 00s, charge %d%%" % (o[1], mn) if o[1] != 22 else "NAS went down while on battery"))
 con.executemany("INSERT INTO events(ts,kind,detail) VALUES(?,?,?)", ev)
 ucore.meta_set(con, "last_poll", now - 3)
-ucore.meta_set(con, "health", {"level": "warning", "checked_at": now - 20, "addon_log": None, "checks": [
+ucore.meta_set(con, "health", {"level": "warning" if os.environ.get("PREVIEW_WARN") else "ok", "checked_at": now - 20, "addon_log": None, "checks": [
     {"name": "US3000 on USB", "level": "ok", "detail": "2b89:ffff"},
     {"name": "Addon at this boot", "level": "ok", "detail": "v1.2.0 ran at this boot (late mode, 2026-10-21 19:58:02)"},
     {"name": "Addon wrapper", "level": "ok", "detail": "/usr/bin/usbhid-ups is the us3000 wrapper"},
     {"name": "Driver process", "level": "ok", "detail": "/usr/lib/us3000/usbhid-ups"},
     {"name": "Driver version", "level": "ok", "detail": "NUT 2.8.5, subdriver MGE"},
     {"name": "Voltage setting lock", "level": "ok", "detail": "output.voltage.nominal is read-only"},
-    {"name": "Low-battery logic", "level": "warning", "detail": "using the UPS's own LB flag (ignorelb is off)"},
+    {"name": "Low-battery logic", "level": "warning", "detail": "using the UPS's own LB flag (ignorelb is off)"}
+    if os.environ.get("PREVIEW_WARN") else
+    {"name": "Low-battery logic", "level": "ok", "detail": "LB derived from charge <= 20%"},
     {"name": "Control service", "level": "ok", "detail": "us3000-ctl v1.2.0 (beeper, battery test)"}]})
 con.commit()
 
@@ -64,6 +66,11 @@ ucore.nut_list_vars = lambda: {"ups.status": "OL DISCHRG", "battery.charge": "10
                                "ups.load": "1", "ups.beeper.status": "disabled", "device.mfr": "UGREEN",
                                "device.model": "US3000", "device.serial": "SN00000", "driver.version": "2.8.5",
                                "driver.parameter.subdriver": "MGE", "ups.test.result": "Done and passed"}
+if os.environ.get("PREVIEW_STATE") == "ob":   # render the on-battery look too
+    _live = ucore.nut_list_vars()
+    _live.update({"ups.status": "OB DISCHRG", "battery.charge": "34", "battery.runtime": "540",
+                  "input.voltage": "0.0"})
+    ucore.nut_list_vars = lambda: _live
 ucore.ctl_call = lambda req, timeout=20.0, path=None: {
     "ok": True, "version": "1.2.0", "allowed": sorted(webapi.CONTROL_CMDS)}
 resp = {"status": webapi.handle({"action": "status"}, db, now)[1],
@@ -81,7 +88,9 @@ stub = ("<script>window.__R=%s;window.fetch=function(u){var p=new URLSearchParam
 html = html.replace('<link rel="stylesheet" href="app.css">',
                     "<style>%s</style>" % open(os.path.join(app, "app.css")).read())
 html = html.replace('<script src="app.js"></script>', stub + "<script>%s</script>" % open(os.path.join(app, "app.js")).read())
-out = os.path.join(HERE, "preview")
+out = os.path.join(HERE, "preview" + ("-ob" if os.environ.get("PREVIEW_STATE") == "ob" else ""))
 os.makedirs(out, exist_ok=True)
+import subprocess  # noqa: E402
+subprocess.run([sys.executable, "-I", os.path.join(HERE, "..", "tools", "make_icons.py"), out], check=True)
 open(os.path.join(out, "index.html"), "w").write(html)
 print(os.path.join(out, "index.html"))

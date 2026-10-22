@@ -3,7 +3,7 @@
         "US3000.Companion.Application": {
             "type": "app",
             "title": "US3000 Companion",
-            "version": "1.1.0",
+            "version": "1.2.0",
             "icon": "images/icon-{0}.png",
             "allowMultiInstance": false,
             "allUsers": false,

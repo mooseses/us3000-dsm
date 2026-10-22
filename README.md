@@ -52,22 +52,31 @@ US3000 reporting USB ID `2b89:ffff`. Tested so far:
 - DSM's UPS service with the 2.8.5 driver, including a real power cut (on
   battery, then back on mains);
 - the companion package installed through Package Center;
-- the addon package run through RR's own `installAddon` code, followed by its boot
-  step against a copy of DSM's files.
+- **the v1.2.0 addon installed through the RR menu and booted** (2026-10-22): the
+  driver and the `us3000-ctl` service were installed at boot, and the status file
+  carried that boot's ID;
+- **the companion's controls on real hardware:** a quick battery self-test ran
+  and reported "Done and passed".
 
 **Known issue in v1.0.1 and v1.1.0:** installed through the RR menu, the addon
 couldn't find its driver at boot (`bundled driver … missing` in
 `/var/log/rr-us3000.log`). RR only copies an addon's `root/` folder into the boot
 image, and those releases packaged the driver outside it. This is fixed in v1.2.0.
 
-**Not yet tested:** booting a real system with the v1.2.0 addon, the companion's
-controls on real hardware, the Task Scheduler method for systems without RR
-(offline tests only), and a full low-battery shutdown.
+**Beeper, unverified:** the UPS accepts `beeper.enable`, but `ups.beeper.status`
+keeps reading "disabled". The US3000 has two beeper fields. NUT's MGE mapping
+writes to the first, `Battery.AudibleAlarmControl`, which the firmware marks
+read-only and also reports from. The writable one, `PowerSummary.AudibleAlarmControl`,
+can't be read back. Whether the beeper really changes still needs a power-cut test
+by ear.
+
+**Not yet tested:** the beeper (above), the Task Scheduler method for systems
+without RR (offline tests only), and a full low-battery shutdown.
 
 | Part | What it is |
 |---|---|
 | [`addon/`](addon) | Gets DSM's UPS service to drive the US3000 (RR addon, or Task Scheduler boot task) |
-| [`companion/`](companion) | DSM package: live status, outage history, battery-wear trend, addon health |
+| [`companion/`](companion) | DSM package: live status, controls (beeper, battery self-test), outage history, battery-wear trend, addon health |
 
 ![US3000 Companion](docs/companion.png)
 *(Screenshot with simulated data.)*
@@ -216,7 +225,7 @@ monitored for the first minute or two of each boot.
 It needs no extra packages (it uses DSM's built-in Python 3.8). Raw readings are
 kept for 30 days and outage records are kept forever.
 
-**Controls (companion 1.1.0 + addon 1.2.0).** The app can send these commands to
+**Controls (companion 1.1.0+ with addon 1.2.0+).** The app can send these commands to
 the UPS:
 
 | Control | Command | Rules |
