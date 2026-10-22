@@ -101,13 +101,23 @@ EOF
   chmod 755 "${ROOT}${DRV}"
 }
 
+# The bundled driver: RR copies the addon's root/ tree into the ramdisk, so it
+# arrives as /addons/us3000-usbhid-ups next to this script (/addons/us3000.sh).
+# Unpacked by hand for boot mode it may still sit under root/addons/.
+bundled_driver() {
+  for F in "${HERE}/us3000-usbhid-ups" "${HERE}/root/addons/us3000-usbhid-ups"; do
+    [ -f "${F}" ] && { echo "${F}"; return 0; }
+  done
+  return 1
+}
+
 install_driver() {
-  if [ ! -f "${HERE}/us3000-usbhid-ups" ]; then
-    log "bundled driver ${HERE}/us3000-usbhid-ups missing, nothing installed"
+  SRC="$(bundled_driver)" || {
+    log "ERROR: bundled driver us3000-usbhid-ups not found next to ${HERE}, nothing installed"
     return 1
-  fi
+  }
   mkdir -p "${ROOT}${NEWDIR}" && chmod 755 "${ROOT}${NEWDIR}" &&
-    cp -f "${HERE}/us3000-usbhid-ups" "${ROOT}${NEWDRV}" &&
+    cp -f "${SRC}" "${ROOT}${NEWDRV}" &&
     chmod 755 "${ROOT}${NEWDRV}" || return 1
   log "installed NUT 2.8.5 driver at ${NEWDRV}"
 
@@ -222,7 +232,6 @@ case "${1}" in
     # Keep a copy in DSM so uninstall works the same way as RR's own addons.
     mkdir -p "${ROOT}/usr/rr/addons"
     cp -pf "${0}" "${ROOT}/usr/rr/addons/us3000.sh" 2>/dev/null
-    cp -pf "${HERE}/us3000-usbhid-ups" "${ROOT}/usr/rr/addons/us3000-usbhid-ups" 2>/dev/null
     install_driver "$*"
     patch_tables
     ;;

@@ -51,10 +51,17 @@ US3000 reporting USB ID `2b89:ffff`. Tested so far:
   and idempotency checked against a copy of DSM's files;
 - DSM's UPS service with the 2.8.5 driver, including a real power cut (on
   battery, then back on mains);
-- the companion package installed through Package Center.
+- the companion package installed through Package Center;
+- the addon package run through RR's own `installAddon` code, followed by its boot
+  step against a copy of DSM's files.
 
-**Not yet tested:** installing the addon through the RR menu and booting with it,
-the Task Scheduler method for systems without RR (offline tests only), and a full
+**Known issue in v1.0.1 and v1.1.0:** installed through the RR menu, the addon
+couldn't find its driver at boot (`bundled driver … missing` in
+`/var/log/rr-us3000.log`). RR only copies an addon's `root/` folder into the boot
+image, and those releases packaged the driver outside it. This is fixed in v1.1.1.
+
+**Not yet tested:** booting a real system with the v1.1.1 addon, the Task
+Scheduler method for systems without RR (offline tests only), and a full
 low-battery shutdown.
 
 | Part | What it is |
@@ -170,12 +177,13 @@ so this won't work on ARM models (check **Control Panel → Info Center → CPU*
 The same `install.sh` can run from a root boot task instead of from RR:
 
 1. Make a folder on a volume, e.g. `/volume1/us3000`, put `us3000.addon` from the
-   [latest release](../../releases/latest) (v1.1.0 or later) in it, and unpack it:
+   [latest release](../../releases/latest) (v1.1.1 or later) in it, and unpack it:
    ```sh
    cd /volume1/us3000
    tar -xzf us3000.addon ./all.tgz && tar -xzf all.tgz && rm all.tgz
    ```
-   That leaves `install.sh` and `us3000-usbhid-ups` in the folder.
+   That leaves `install.sh` and `root/addons/us3000-usbhid-ups` in the folder;
+   `install.sh` finds the driver there.
 2. **Control Panel → Task Scheduler → Create → Triggered Task → User-defined
    script.** Set **User** to `root`, **Event** to `Boot-up`, and the command to
    `sh /volume1/us3000/install.sh boot`.
